@@ -35,23 +35,16 @@ package com.bear.lou.spotifyeasyskipper;
 
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
-
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
-
 import android.speech.tts.TextToSpeech;
 import java.util.Locale;
-import java.util.concurrent.TimeUnit;
-
+import java.util.Calendar;
 import com.spotify.android.appremote.api.ConnectionParams;
 import com.spotify.android.appremote.api.Connector;
 import com.spotify.android.appremote.api.PlayerApi;
 import com.spotify.android.appremote.api.SpotifyAppRemote;
-
-import com.spotify.protocol.client.CallResult;
-import com.spotify.protocol.client.ErrorCallback;
-import com.spotify.protocol.client.Result;
 import com.spotify.protocol.client.Subscription;
 import com.spotify.protocol.types.PlayerState;
 import com.spotify.protocol.types.Track;
@@ -62,33 +55,24 @@ public class MainActivity extends AppCompatActivity {
     private static final String REDIRECT_URI = "http://localhost:8888/callback/";
 
     private SpotifyAppRemote mSpotifyAppRemote;
-    private PlayerApi playerApi;
 
     TextToSpeech t1;
 
-    private boolean isPaused = false;
-    private String currentTrack = "";
+    private boolean isPaused = true;
+    private boolean newSong = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        t1=new TextToSpeech(getApplicationContext(), new TextToSpeech.OnInitListener() {
-            @Override
-            public void onInit(int status) {
-                if(status != TextToSpeech.ERROR) {
-                    t1.setLanguage(Locale.US);
-                }
-            }
-        });
-
         final Button buttonBckwd = (Button) findViewById(R.id.buttonBckwd);
         buttonBckwd.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 // Code here executes on main thread after user presses button
                 mSpotifyAppRemote.getPlayerApi().skipPrevious();
-                updateTrack();
+                newSong = true;
+                //updateTrack();
             }
         });
 
@@ -97,7 +81,8 @@ public class MainActivity extends AppCompatActivity {
             public void onClick(View v) {
                 // Code here executes on main thread after user presses button
                 mSpotifyAppRemote.getPlayerApi().skipNext();
-                updateTrack();
+                newSong = true;
+                //updateTrack();
             }
         });
 
@@ -112,14 +97,20 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
 
-                sayTrack();
-
                 if(isPaused) {
-                    //mSpotifyAppRemote.getPlayerApi().resume();
+                    mSpotifyAppRemote.getPlayerApi().resume();
+                    newSong = true;
                 }
                 else {
-                    //mSpotifyAppRemote.getPlayerApi().pause();
+                    mSpotifyAppRemote.getPlayerApi().pause();
                 }
+                return true;
+            }
+        });
+
+        buttonBckwd.setOnLongClickListener(new View.OnLongClickListener() {
+            public boolean onLongClick(View v){
+                sayTrack(getTime());
                 return true;
             }
         });
@@ -128,6 +119,28 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onStart() {
         super.onStart();
+
+        //Forcibly set these so we don't mess up the state we're in
+        isPaused = true;
+        newSong = false;
+
+        //Initialize TTS!
+        t1=new TextToSpeech(getApplicationContext(), new TextToSpeech.OnInitListener() {
+            @Override
+            public void onInit(int status) {
+                if(status != TextToSpeech.ERROR) {
+                    t1.setLanguage(Locale.US);
+
+                    //Comment out to change voice, default is fine for now
+                    //Voice v = new Voice("en-us-x-sfg#female_4-local",
+                    //        Locale.forLanguageTag("en-us-x-sfg#female_4-local"), 1, 1, false, null);
+                    //t1.setVoice(v);
+
+                    t1.setSpeechRate(1.5f); //Set speech rate a little higher
+                }
+            }
+        });
+
         // Set the connection parameters
         ConnectionParams connectionParams =
                 new ConnectionParams.Builder(CLIENT_ID)
@@ -165,14 +178,32 @@ public class MainActivity extends AppCompatActivity {
             Log.e("MainActivity", "Error delaying.");
         }
 
-        mSpotifyAppRemote.getPlayerApi().resume();
+        // Subscribe to PlayerState
+        mSpotifyAppRemote.getPlayerApi()
+                .subscribeToPlayerState()
+                .setEventCallback(new Subscription.EventCallback<PlayerState>() {
 
-        updateTrack();
+                    public void onEvent(PlayerState playerState) {
+                        final Track track = playerState.track;
+                        if (track != null) {
+                            Log.d("MainActivity", track.name + " by " + track.artist.name);
+
+                            if(newSong) {
+                                sayTrack(track.name + " by " + track.artist.name);
+                                if(!track.name.equals("")){
+                                    newSong = false;
+                                }
+                            }
+                        }
+                    }
+                });
+
+        //mSpotifyAppRemote.getPlayerApi().resume();
+
     }
 
     @Override
     protected void onStop() {
-        super.onStop();
 
         SpotifyAppRemote.CONNECTOR.disconnect(mSpotifyAppRemote);
 
@@ -181,25 +212,27 @@ public class MainActivity extends AppCompatActivity {
             t1.stop();
             t1.shutdown();
         }
+        super.onStop();
     }
 
-    private void updateTrack() {
-        // Subscribe to PlayerState
-        mSpotifyAppRemote.getPlayerApi()
-                .subscribeToPlayerState().setEventCallback(new Subscription.EventCallback<PlayerState>() {
-            @Override
-            public void onEvent(PlayerState playerState) {
-                final Track track = playerState.track;
-                if (track != null) {
-                    currentTrack = track.name;
-                    //Log.e("MainActivity", "Current track: " + currentTrack);
-                }
-            }
-        });
+    private void sayTrack(String track) {
+        t1.speak(track, TextToSpeech.QUEUE_FLUSH, null);
     }
 
-    private void sayTrack() {
-        t1.speak(currentTrack, TextToSpeech.QUEUE_FLUSH, null);
-    }
+    private String getTime(){
+        Calendar c = Calendar.getInstance();
 
+        String time = "";
+        time += c.get(Calendar.HOUR);
+        time += c.get(Calendar.MINUTE);
+
+        if(c.getTime().getHours() > 11){
+            time += " PM";
+        }
+        else{
+            time += " AM";
+        }
+
+        return time;
+    }
 }
