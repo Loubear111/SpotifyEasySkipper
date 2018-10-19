@@ -223,8 +223,21 @@ public class MainActivity extends AppCompatActivity {
         Calendar c = Calendar.getInstance();
 
         String time = "";
-        time += c.get(Calendar.HOUR);
-        time += c.get(Calendar.MINUTE);
+        int hour = c.get(Calendar.HOUR);
+        if(hour < 1) {
+            time += "12";
+        }
+        else {
+            time += hour;
+        }
+
+        int minute =  c.get(Calendar.MINUTE);
+        if(minute < 10) {
+            time += "0" + minute;
+        }
+        else {
+            time += minute;
+        }
 
         if(c.getTime().getHours() > 11){
             time += " PM";
